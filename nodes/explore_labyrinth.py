@@ -24,9 +24,7 @@ GOAL_MIN_DIST_TO_WALL = 5
 class LabyrinthExplorer:
 
     def __init__(self):
-        self._pub = Publisher('/explorer_goal_pos', MoveBaseGoal, queue_size=10)
-
-        print "init Movement Controller"
+        self._pub = rospy.Publisher('/explorer_goal_pos', MoveBaseGoal, queue_size=10)
         self.map_trimmer = MapTrimmer()
         self._occupancy_grid = rospy.wait_for_message('/map', OccupancyGrid)
         self._occupancy_map = self._occupancy_grid.data
@@ -37,8 +35,7 @@ class LabyrinthExplorer:
         self._map_width = self._occupancy_grid.info.width
         # reshape map
         trimmed_map = np.array(self._occupancy_map)
-        self._occupancy_map  = trimmed_map.reshape((self._map_width, self._map_height))
-
+        self._occupancy_map = trimmed_map.reshape((self._map_width, self._map_height))
         self._odom_sub = rospy.Subscriber('/odom', Odometry, self.pose_callback)
         self._current_pose = None
         self._current_x = None
@@ -97,12 +94,13 @@ class LabyrinthExplorer:
                 last_x_known = current_x
                 last_y_known = current_y
 
-            # is wall or already visited skip
+            # is wall
             if current_map[current_y, current_x] == 1:
                 continue
             # unknown cell found
             if current_map[current_y, current_x] == -1:
-                return self.next_known_cell(current_x, current_y, current_map)
+                #return self.next_known_cell(current_x, current_y, current_map)
+                return last_x_known, last_y_known
 
             # add all neighbours of current cell
             directions = np.array([[current_x - 1, current_y], [current_x + 1, current_y],
@@ -131,10 +129,10 @@ class LabyrinthExplorer:
             closed_list.append(current_path)
             current_x = current_path[0]
             current_y = current_path[1]
-            # is wall or already visited skip
+            # is wall
             if current_map[current_y, current_x] == 1:
                 continue
-            # unknown cell found
+            # known cell found
             if current_map[current_y, current_x] == 0:
                 return self.goal_pos_correction(current_y, current_x, current_map)
             # add all neighbours of current cell
