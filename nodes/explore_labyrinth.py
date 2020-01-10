@@ -99,8 +99,8 @@ class LabyrinthExplorer:
                 continue
             # unknown cell found
             if current_map[current_y, current_x] == -1:
-                #return self.next_known_cell(current_x, current_y, current_map)
-                return last_x_known, last_y_known
+                return self.next_known_cell(current_x, current_y, current_map)
+                #return last_x_known, last_y_known
 
             # add all neighbours of current cell
             directions = np.array([[current_x - 1, current_y], [current_x + 1, current_y],
@@ -124,76 +124,50 @@ class LabyrinthExplorer:
         start_pose = np.array([pos_x, pos_y])
         path = [start_pose]
         closed_list = []
+        first_run = True
         while len(path) > 0:
             current_path = path.pop(0)
             closed_list.append(current_path)
             current_x = current_path[0]
             current_y = current_path[1]
             # is wall
-            if current_map[current_y, current_x] == 1:
+            if current_map[current_y, current_x] == 1 or (current_map[current_y, current_x] == -1 and not first_run):
                 continue
             # known cell found
-            if current_map[current_y, current_x] == 0:
-                return self.goal_pos_correction(current_y, current_x, current_map)
+            if self.check_goal_pos(current_x, current_y, current_map):
+                return current_x, current_y
+            #if current_map[current_y, current_x] == 0:
+            #    return self.goal_pos_correction(current_x, current_y, current_map)
             # add all neighbours of current cell
-            directions = np.array([[current_x - 1, current_y], [current_x + 1, current_y],
-                                   [current_x, current_y - 1], [current_x, current_y + 1]])
+            directions = np.array([[current_x + 1, current_y], [current_x - 1, current_y],
+                                   [current_x, current_y + 1], [current_x, current_y - 1]])
             np.random.shuffle(directions)
             for i in directions:
                 if not self.cointains_pos(i, closed_list):
                     if not self.cointains_pos(i, path):
+                        print i
                         path.append(i)
+            first_run = False
 
-    def goal_pos_correction(self, pos_x, pos_y, current_map):
-        correct = False
-        while not correct:
-            lower_x = pos_x - (np.int(GOAL_MIN_DIST_TO_WALL/2))
-            if lower_x < 0:
-                lower_x = 0
-            upper_x = pos_x + (np.int(GOAL_MIN_DIST_TO_WALL/2))
-            if upper_x > self._map_width - 1:
-                upper_x =  self._map_width - 1
+    def check_goal_pos(self, pos_x, pos_y, current_map):
+        lower_x = pos_x - (np.int(GOAL_MIN_DIST_TO_WALL / 2))
+        if lower_x < 0:
+            lower_x = 0
+        upper_x = pos_x + (np.int(GOAL_MIN_DIST_TO_WALL / 2))
+        if upper_x > self._map_width - 1:
+            upper_x = self._map_width - 1
 
-            lower_y = pos_y - (np.int(GOAL_MIN_DIST_TO_WALL / 2))
-            if lower_y < 0:
-                lower_y = 0
-            upper_y = pos_y + (np.int(GOAL_MIN_DIST_TO_WALL / 2))
-            if upper_y > self._map_height - 1:
-                upper_y = self._map_height - 1
-
-            current_blobb = current_map[lower_y:upper_y][lower_x:upper_x]
-
-            if 1 in current_blobb:
-                w = zip(*np.where(current_blobb == 1))
-                if (0, 0) in w:
-                    pos_x = pos_x + 1
-                    pos_y = pos_y - 1
-                elif (0, 1) in w:
-                    pos_x = pos_x - 1
-                    pos_y = pos_y - 1
-                elif (1, 0) in w:
-                    pos_x = pos_x - 1
-                    pos_y = pos_y + 1
-                elif (1, 1) in w:
-                    pos_x = pos_x + 1
-                    pos_y = pos_y + 1
-            elif -1 in current_blobb:
-                w = zip(*np.where(current_blobb == -1))
-                if (0, 0) in w:
-                    pos_x = pos_x + 1
-                    pos_y = pos_y - 1
-                elif (0, 1) in w:
-                    pos_x = pos_x - 1
-                    pos_y = pos_y - 1
-                elif (1, 0) in w:
-                    pos_x = pos_x - 1
-                    pos_y = pos_y + 1
-                elif (1, 1) in w:
-                    pos_x = pos_x + 1
-                    pos_y = pos_y + 1
-            else:
-                correct = True
-        return pos_x, pos_y
+        lower_y = pos_y - (np.int(GOAL_MIN_DIST_TO_WALL / 2))
+        if lower_y < 0:
+            lower_y = 0
+        upper_y = pos_y + (np.int(GOAL_MIN_DIST_TO_WALL / 2))
+        if upper_y > self._map_height - 1:
+            upper_y = self._map_height - 1
+        current_blobb = current_map[lower_y:upper_y + 1, lower_x:upper_x + 1]
+        if np.sum(np.absolute(current_blobb)) == 0:
+            return True
+        else:
+            return False
 
     def update_map_data(self, occupancy_grid):
         self._occupancy_map = occupancy_grid.data
@@ -218,13 +192,22 @@ class LabyrinthExplorer:
             self._occupancy_grid = rospy.wait_for_message("/map", OccupancyGrid)
             self.update_map_data(self._occupancy_grid)
             cleared_map = self.map_trimmer.trim_map(self._occupancy_map)
+            # Plot heatmap of trimmed map
+            #f = plt.figure(1)
+            #plt.imshow(cleared_map, cmap='hot', interpolation='nearest')
+            #f.show()
+            cleared_map[self._current_y, self._current_x]=5
+
 
             next_x, next_y = self.bfs(cleared_map, self._current_x, self._current_y, next_x, next_y)
+            cleared_map[next_y, next_x] = 10
             next_x, next_y = self.transform_to_meter(next_x, next_y)
 
             # Plot heatmap of trimmed map
+            #g = plt.figure(2)
             #plt.imshow(cleared_map, cmap='hot', interpolation='nearest')
-            #plt.show()
+            #g.show()
+            #raw_input()
             self.publish_goal(next_x, next_y)
             time.sleep(5)
 
