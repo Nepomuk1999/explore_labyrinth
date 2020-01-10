@@ -17,7 +17,7 @@ if os.name == 'nt':
 else:
     import termios
 
-GOAL_MIN_DIST_TO_WALL = 5
+GOAL_MIN_DIST_TO_WALL = 2
 
 
 # Publisher
@@ -53,7 +53,7 @@ class LabyrinthExplorer:
         self._current_x = self._current_pose.position.x
         self._current_y = self._current_pose.position.y
 
-        self._current_y, self._current_x = self.transform_to_pos(self._current_x, self._current_y)
+        self._current_x, self._current_y = self.transform_to_pos(self._current_x, self._current_y)
         # print msg.pose.pose
 
     def transform_to_pos(self, m_x, m_y):
@@ -69,7 +69,7 @@ class LabyrinthExplorer:
     def bfs(self, current_map, robot_pos_x, robot_pos_y, last_x, last_y):
         if robot_pos_x == self._start_x and robot_pos_y == self._start_y:
             robot_pos_y = robot_pos_y + 2
-        print 'bfs started'
+
         start_pose = np.array([robot_pos_x, robot_pos_y])
         path = [start_pose]
 
@@ -145,10 +145,54 @@ class LabyrinthExplorer:
                         path.append(i)
 
     def goal_pos_correction(self, pos_x, pos_y, current_map):
-        i = 1
-        j = 0
-        print 'goal pos corr st'
-        current_blob = current_map[[]]
+        correct = False
+        while not correct:
+            lower_x = pos_x - (np.int(GOAL_MIN_DIST_TO_WALL/2))
+            if lower_x < 0:
+                lower_x = 0
+            upper_x = pos_x + (np.int(GOAL_MIN_DIST_TO_WALL/2))
+            if upper_x > self._map_width - 1:
+                upper_x =  self._map_width - 1
+
+            lower_y = pos_y - (np.int(GOAL_MIN_DIST_TO_WALL / 2))
+            if lower_y < 0:
+                lower_y = 0
+            upper_y = pos_y + (np.int(GOAL_MIN_DIST_TO_WALL / 2))
+            if upper_y > self._map_height - 1:
+                upper_y = self._map_height - 1
+
+            current_blobb = current_map[lower_y:upper_y][lower_x:upper_x]
+
+            if 1 in current_blobb:
+                w = zip(*np.where(current_blobb == 1))
+                if (0, 0) in w:
+                    pos_x = pos_x + 1
+                    pos_y = pos_y - 1
+                elif (0, 1) in w:
+                    pos_x = pos_x - 1
+                    pos_y = pos_y - 1
+                elif (1, 0) in w:
+                    pos_x = pos_x - 1
+                    pos_y = pos_y + 1
+                elif (1, 1) in w:
+                    pos_x = pos_x + 1
+                    pos_y = pos_y + 1
+            elif -1 in current_blobb:
+                w = zip(*np.where(current_blobb == -1))
+                if (0, 0) in w:
+                    pos_x = pos_x + 1
+                    pos_y = pos_y - 1
+                elif (0, 1) in w:
+                    pos_x = pos_x - 1
+                    pos_y = pos_y - 1
+                elif (1, 0) in w:
+                    pos_x = pos_x - 1
+                    pos_y = pos_y + 1
+                elif (1, 1) in w:
+                    pos_x = pos_x + 1
+                    pos_y = pos_y + 1
+            else:
+                correct = True
         return pos_x, pos_y
 
     def update_map_data(self, occupancy_grid):
@@ -169,22 +213,24 @@ class LabyrinthExplorer:
         next_x = -1
         next_y = -1
         while not rospy.is_shutdown():
-                # get map to avoid update while processing
-                self._occupancy_grid = rospy.wait_for_message("/map", OccupancyGrid)
-                self.update_map_data(self._occupancy_grid)
-                cleared_map = self.map_trimmer.trim_map(self._occupancy_map)
+            print 'calc next pos'
+            # get map to avoid update while processing
+            self._occupancy_grid = rospy.wait_for_message("/map", OccupancyGrid)
+            self.update_map_data(self._occupancy_grid)
+            cleared_map = self.map_trimmer.trim_map(self._occupancy_map)
 
-                next_x, next_y = self.bfs(cleared_map, self._current_x, self._current_y, next_x, next_y)
-                next_x, next_y = self.transform_to_meter(next_x, next_y)
+            next_x, next_y = self.bfs(cleared_map, self._current_x, self._current_y, next_x, next_y)
+            next_x, next_y = self.transform_to_meter(next_x, next_y)
 
-                # Plot heatmap of trimmed map
-                #plt.imshow(cleared_map, cmap='hot', interpolation='nearest')
-                #plt.show()
-                self.publish_goal(next_x, next_y)
+            # Plot heatmap of trimmed map
+            #plt.imshow(cleared_map, cmap='hot', interpolation='nearest')
+            #plt.show()
+            self.publish_goal(next_x, next_y)
+            time.sleep(5)
 
     def publish_goal(self, x_goal, y_goal):
         goal = MoveBaseGoal()
-        goal.target_pose.header.frame_id = "map"
+        goal.target_pose.header.frame_id = "/map"
         goal.target_pose.header.stamp = rospy.Time.now()
         goal.target_pose.pose.position.x = x_goal
         goal.target_pose.pose.position.y = y_goal
