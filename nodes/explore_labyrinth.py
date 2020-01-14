@@ -24,10 +24,11 @@ GOAL_MIN_DIST_TO_WALL = 6
 class LabyrinthExplorer:
 
     def __init__(self):
-        self._as = actionlib.SimpleActionServer('/explorer_goal_pos', MoveBaseGoal,
+        self._as = actionlib.SimpleActionServer('/explorer_goal_pos', MoveBaseAction,
                                                 execute_cb=self.movementcontroller, auto_start=False)
         self._as.start()
-        # self._pub = rospy.Publisher('/explorer_goal_pos', MoveBaseGoal, queue_size=10)
+        self._pub = rospy.Publisher('/explorer_goal_pos_result', MoveBaseGoal, queue_size=10)
+        print 'publisher initialized'
         self.map_trimmer = MapTrimmer()
         self._occupancy_grid = rospy.wait_for_message('/map', OccupancyGrid)
         self._occupancy_map = self._occupancy_grid.data
@@ -45,11 +46,7 @@ class LabyrinthExplorer:
         self._current_y = None
         while self._current_pose is None:
             time.sleep(2)
-        self._client = actionlib.SimpleActionClient('/move_base', MoveBaseAction)
-        self._client.wait_for_server()
-
         self._start_x, self._start_y = self.transform_to_pos(self._current_pose.position.x, self._current_pose.position.y)
-        self.movementcontroller()
 
     def pose_callback(self, msg):
         self._current_pose = msg.pose.pose
@@ -154,7 +151,6 @@ class LabyrinthExplorer:
             for i in directions:
                 if not self.cointains_pos(i, closed_list):
                     if not self.cointains_pos(i, path):
-                        print i
                         path.append(i)
             first_run = False
 
@@ -201,6 +197,8 @@ class LabyrinthExplorer:
         cleared_map[next_y, next_x] = 10
         next_x, next_y = self.transform_to_meter(next_x, next_y)
         self.publish_goal(next_x, next_y)
+        self._as.set_succeeded()
+
 
     def publish_goal(self, x_goal, y_goal):
         goal = MoveBaseGoal()
@@ -209,8 +207,7 @@ class LabyrinthExplorer:
         goal.target_pose.pose.position.x = x_goal
         goal.target_pose.pose.position.y = y_goal
         goal.target_pose.pose.orientation.w = 1
-        self._as.publish_feedback(goal)
-        self._as.set_succeeded(True)
+        self._pub.publish(goal)
 
 
 class MapTrimmer:
@@ -257,10 +254,11 @@ def main():
     rospy.init_node('explore_labyrinth')
     try:
         LabyrinthExplorer()
+        rospy.spin()
     except Exception as e:
         print e
         traceback.print_exc()
-    rospy.spin()
+
 
 
 if __name__ == "__main__":
