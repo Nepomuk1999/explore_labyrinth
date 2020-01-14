@@ -17,14 +17,17 @@ if os.name == 'nt':
 else:
     import termios
 
-GOAL_MIN_DIST_TO_WALL = 2
+GOAL_MIN_DIST_TO_WALL = 6
 
 
 # Publisher
 class LabyrinthExplorer:
 
     def __init__(self):
-        self._pub = rospy.Publisher('/explorer_goal_pos', MoveBaseGoal, queue_size=10)
+        self._as = actionlib.SimpleActionServer('/explorer_goal_pos', MoveBaseGoal,
+                                                execute_cb=self.movementcontroller, auto_start=False)
+        self._as.start()
+        # self._pub = rospy.Publisher('/explorer_goal_pos', MoveBaseGoal, queue_size=10)
         self.map_trimmer = MapTrimmer()
         self._occupancy_grid = rospy.wait_for_message('/map', OccupancyGrid)
         self._occupancy_map = self._occupancy_grid.data
@@ -66,7 +69,7 @@ class LabyrinthExplorer:
         m_y = pos_y * self._resolution + self._offset_y
         return m_x, m_y
 
-    def bfs(self, current_map, robot_pos_x, robot_pos_y, last_x, last_y):
+    def bfs(self, current_map, robot_pos_x, robot_pos_y):
         if robot_pos_x == self._start_x and robot_pos_y == self._start_y:
             robot_pos_y = robot_pos_y + 2
 
@@ -84,6 +87,10 @@ class LabyrinthExplorer:
         last_x_known = 0
         last_y_known = 0
         while len(path) > 0:
+            if len(path) == 0:
+                f = plt.figure(1)
+                plt.imshow(current_map, cmap='hot', interpolation='nearest')
+                f.show()
             current_path = path.pop(0)
             closed_list.append(current_path)
             current_x = current_path[0]
@@ -126,6 +133,7 @@ class LabyrinthExplorer:
         closed_list = []
         first_run = True
         while len(path) > 0:
+
             current_path = path.pop(0)
             closed_list.append(current_path)
             current_x = current_path[0]
@@ -138,6 +146,7 @@ class LabyrinthExplorer:
                 return current_x, current_y
             #if current_map[current_y, current_x] == 0:
             #    return self.goal_pos_correction(current_x, current_y, current_map)
+
             # add all neighbours of current cell
             directions = np.array([[current_x + 1, current_y], [current_x - 1, current_y],
                                    [current_x, current_y + 1], [current_x, current_y - 1]])
@@ -179,37 +188,19 @@ class LabyrinthExplorer:
         self._map_width = meta_data.width
         # reshape map
         trimmed_map = np.array(self._occupancy_map)
-        self._occupancy_map  = trimmed_map.reshape((self._map_width, self._map_height))
+        self._occupancy_map = trimmed_map.reshape((self._map_width, self._map_height))
 
-    def movementcontroller(self):
-        print "movementcontroller()"
-        status = 'mapping'
-        next_x = -1
-        next_y = -1
-        while not rospy.is_shutdown():
-            print 'calc next pos'
-            # get map to avoid update while processing
-            self._occupancy_grid = rospy.wait_for_message("/map", OccupancyGrid)
-            self.update_map_data(self._occupancy_grid)
-            cleared_map = self.map_trimmer.trim_map(self._occupancy_map)
-            # Plot heatmap of trimmed map
-            #f = plt.figure(1)
-            #plt.imshow(cleared_map, cmap='hot', interpolation='nearest')
-            #f.show()
-            cleared_map[self._current_y, self._current_x]=5
-
-
-            next_x, next_y = self.bfs(cleared_map, self._current_x, self._current_y, next_x, next_y)
-            cleared_map[next_y, next_x] = 10
-            next_x, next_y = self.transform_to_meter(next_x, next_y)
-
-            # Plot heatmap of trimmed map
-            #g = plt.figure(2)
-            #plt.imshow(cleared_map, cmap='hot', interpolation='nearest')
-            #g.show()
-            #raw_input()
-            self.publish_goal(next_x, next_y)
-            time.sleep(5)
+    def movementcontroller(self, goal):
+        print 'calc next pos'
+        # get map to avoid update while processing
+        self._occupancy_grid = rospy.wait_for_message("/map", OccupancyGrid)
+        self.update_map_data(self._occupancy_grid)
+        cleared_map = self.map_trimmer.trim_map(self._occupancy_map)
+        cleared_map[self._current_y, self._current_x] = 5
+        next_x, next_y = self.bfs(cleared_map, self._current_x, self._current_y)
+        cleared_map[next_y, next_x] = 10
+        next_x, next_y = self.transform_to_meter(next_x, next_y)
+        self.publish_goal(next_x, next_y)
 
     def publish_goal(self, x_goal, y_goal):
         goal = MoveBaseGoal()
@@ -218,7 +209,8 @@ class LabyrinthExplorer:
         goal.target_pose.pose.position.x = x_goal
         goal.target_pose.pose.position.y = y_goal
         goal.target_pose.pose.orientation.w = 1
-        self._pub.publish(goal)
+        self._as.publish_feedback(goal)
+        self._as.set_succeeded(True)
 
 
 class MapTrimmer:
@@ -268,6 +260,7 @@ def main():
     except Exception as e:
         print e
         traceback.print_exc()
+    rospy.spin()
 
 
 if __name__ == "__main__":
